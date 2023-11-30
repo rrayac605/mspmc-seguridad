@@ -1,0 +1,8 @@
+.classpath
+.factorypath
+.project
+*.prefs
+*.log
+*target/
+*.gz
+*bin/*

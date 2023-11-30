@@ -1,0 +1,299 @@
+package mx.gob.imss.cit.pmc.seguridad.services.impl;
+
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Objects;
+import java.util.Optional;
+
+import javax.net.ssl.SSLContext;
+
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.conn.ssl.TrustStrategy;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
+
+import mx.gob.imss.cit.mspmccommons.exception.BusinessException;
+import mx.gob.imss.cit.pmc.seguridad.controller.MsPmcSeguridadInput;
+import mx.gob.imss.cit.pmc.seguridad.integration.dao.MsPmcSeguridadRepository;
+import mx.gob.imss.cit.pmc.seguridad.integration.dao.ParametroRepository;
+import mx.gob.imss.cit.pmc.seguridad.integration.model.ParametroDTO;
+import mx.gob.imss.cit.pmc.seguridad.integration.model.ResponseTokenBody;
+import mx.gob.imss.cit.pmc.seguridad.integration.model.ResponseTokenInfo;
+import mx.gob.imss.cit.pmc.seguridad.integration.model.ResponseUserInfo;
+import mx.gob.imss.cit.pmc.seguridad.integration.model.SeguridadResponse;
+import mx.gob.imss.cit.pmc.seguridad.integration.model.TokenDTO;
+import mx.gob.imss.cit.pmc.seguridad.services.MsPmcSeguridadService;
+
+@Service("msPmcCatalagosServiceImpl")
+public class MsPmcSeguridadServiceImpl implements MsPmcSeguridadService {
+
+	@Autowired
+	MsPmcSeguridadRepository msPmcSeguridadRepository;
+	
+	@Autowired
+	ParametroRepository parametroRepository;
+	
+	HashMap<String, Optional<ParametroDTO>> parameters = new HashMap<>();
+	
+
+	private final Logger logger = LoggerFactory.getLogger(getClass());
+	private static final String GRANTTYPE = "grant_type";
+	private static final String CLIENTID = "client_id";
+	private static final String CLIENTSECRET = "client_secret";
+	private static final String SCOPE = "scope";
+	private static final String URLTOKEN = "urlToken";
+	private static final String URLTOKENINFO = "urlTokenInfo";
+	private static final String URLUSERINFO = "urlUserInfo";
+	private static final String URLREVOKETOKEN = "urlRevokeToken";
+	private static final String CONTENTTYPE = "Content-Type";
+
+	@Override
+	public Object getInfoSeguridad(MsPmcSeguridadInput input) throws BusinessException{
+		
+		SeguridadResponse response = new SeguridadResponse();
+		if (!validaParameters(parameters)) {
+			Optional<ParametroDTO> grantType = parametroRepository.findOneByCve(GRANTTYPE);
+			Optional<ParametroDTO> clientId = parametroRepository.findOneByCve(CLIENTID);
+			Optional<ParametroDTO> clientSecret = parametroRepository.findOneByCve(CLIENTSECRET);
+			Optional<ParametroDTO> scope = parametroRepository.findOneByCve(SCOPE);
+			Optional<ParametroDTO> urlToken = parametroRepository.findOneByCve(URLTOKEN);
+			Optional<ParametroDTO> urlTokenInfo = parametroRepository.findOneByCve(URLTOKENINFO);
+			Optional<ParametroDTO> urlUserInfo = parametroRepository.findOneByCve(URLUSERINFO);
+			Optional<ParametroDTO> urlRevokeToken = parametroRepository.findOneByCve(URLREVOKETOKEN);
+
+			parameters.put(GRANTTYPE, grantType);
+			parameters.put(CLIENTID, clientId);
+			parameters.put(CLIENTSECRET, clientSecret);
+			parameters.put(SCOPE, scope);
+			parameters.put(URLTOKEN, urlToken);
+			parameters.put(URLTOKENINFO, urlTokenInfo);
+			parameters.put(URLUSERINFO, urlUserInfo);
+			parameters.put(URLREVOKETOKEN, urlRevokeToken);
+		}
+		try {
+			
+			ResponseTokenBody token = getToken(input, parameters.get(GRANTTYPE), parameters.get(CLIENTID), parameters.get(CLIENTSECRET), parameters.get(SCOPE), parameters.get(URLTOKEN));
+			ResponseTokenInfo tokenInfo = getTokenInfo(token, parameters.get(URLTOKENINFO));
+			ResponseUserInfo userInfo = getUserInfo(token, parameters.get(URLUSERINFO));			
+			
+			if(userInfo != null) {
+				response.setTokenBody(token);
+				response.setTokenInfo(tokenInfo);
+				response.setUserInfo(userInfo);
+				return response;
+			}else {
+				return null;
+			}			    
+				    
+		} catch (Exception e) {
+			logger.error("",e);
+		}
+		return response;
+	}
+
+	private boolean validaParameters(HashMap<String, Optional<ParametroDTO>> parameters) {
+				
+		return !parameters.get(GRANTTYPE).isPresent() || !parameters.get(CLIENTID).isPresent() || !parameters.get(CLIENTSECRET).isPresent() ||
+			   !parameters.get(SCOPE).isPresent() || !parameters.get(URLTOKEN).isPresent() || !parameters.get(URLTOKENINFO).isPresent() ||
+			   !parameters.get(URLUSERINFO).isPresent();
+		
+	}
+
+	private ResponseUserInfo getUserInfo(ResponseTokenBody token, Optional<ParametroDTO> urlUserInfo) throws KeyManagementException, KeyStoreException, NoSuchAlgorithmException {
+		RestTemplate restTemplate = getRestTemplate();
+		
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		headers.set("Authorization", "Bearer "+token.getAccess_token());
+
+		String requestJson=null;
+		HttpEntity<String> entity = new HttpEntity<>(requestJson,headers);
+		String userInfo = urlUserInfo.isPresent() ? urlUserInfo.get().getDesParametro() : "";
+		ResponseUserInfo response = restTemplate.postForObject(userInfo, entity, ResponseUserInfo.class);
+		//Validacion de sitemas
+		String curp = response != null ? response.getEmployeeNumber() : "";
+		String sistemas = response != null ? response.getImsssistemas() : "";
+		String imssPerfiles = response != null ? response.getImssperfiles() : "";
+		logger.info("<--------UsuarioSistemasIMSS-------->");
+		logger.info(curp, " -> ", sistemas);
+		logger.info("<----------------------------------->");
+		Optional<ParametroDTO> userImssSistemas = parametroRepository.findOneByCve("user.Imss_Sistemas");
+		parameters.put("user.Imss_Sistemas", userImssSistemas);
+		String pmc = userImssSistemas.isPresent() ? userImssSistemas.get().getDesParametro() : "";
+		//Validacion de perfiles
+		logger.info("<--------UsuarioPerfilesIMSS-------->");
+		logger.info(curp, " -> ", imssPerfiles);
+		logger.info("<----------------------------------->");
+		Optional<ParametroDTO> userImssPerfiles = parametroRepository.findOneByCve("user.Imss_Perfiles");
+		parameters.put("user.Imss_Perfiles", userImssPerfiles);
+		String[] perfiles = userImssPerfiles.isPresent() ? userImssPerfiles.get().getDesParametro().split(",") : null;
+		String[] imssPerfil = response != null ? response.getImssperfiles().split(",") : null;
+		boolean acceso = false;
+		for(String perfil : perfiles) {
+			Optional<String> valida = Arrays.asList(imssPerfil).stream().filter(p -> p.equals(perfil)).findFirst();
+			if(valida.isPresent()) {
+				acceso = true;
+				break;
+			}
+		}
+		if(sistemas.contains(pmc) && acceso) {
+			return response;
+		}else {
+			return null;
+		}		
+		
+	}
+
+	private ResponseTokenInfo getTokenInfo(ResponseTokenBody token, Optional<ParametroDTO> urlTokenInfo) throws KeyManagementException, KeyStoreException, NoSuchAlgorithmException {
+		RestTemplate restTemplate = getRestTemplate();
+		
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		headers.set("Authorization", "Bearer "+token.getAccess_token());
+
+		String requestJson=null;
+		HttpEntity<String> entity = new HttpEntity<>(requestJson,headers);
+		String tokenInfo = urlTokenInfo.isPresent() ? urlTokenInfo.get().getDesParametro() : "";
+		
+		return restTemplate.postForObject(tokenInfo, entity, ResponseTokenInfo.class);
+	}
+
+	private ResponseTokenBody getToken(MsPmcSeguridadInput input, Optional<ParametroDTO> gType,
+			Optional<ParametroDTO> cliId, Optional<ParametroDTO> cliSecret, Optional<ParametroDTO> scope,
+			Optional<ParametroDTO> urlToken)
+			throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException {
+		RestTemplate restTemplate = getRestTemplate();
+		String grantType = gType.isPresent() ? gType.get().getDesParametro() : "";
+		String clientId = cliId.isPresent() ? cliId.get().getDesParametro() : "";
+		String clientSecret = cliSecret.isPresent() ? cliSecret.get().getDesParametro() : "";
+		String scop = scope.isPresent() ? scope.get().getDesParametro() : "";
+		LinkedMultiValueMap<String, String> requestSeuridad = new LinkedMultiValueMap<>();
+		requestSeuridad.add(GRANTTYPE, grantType);
+		requestSeuridad.add(CLIENTID, clientId);
+		requestSeuridad.add(CLIENTSECRET,clientSecret);
+		requestSeuridad.add(SCOPE, scop);
+		requestSeuridad.add("username", input.getUsrName());
+		requestSeuridad.add("password", input.getPassword());
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(CONTENTTYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+		
+		HttpEntity<MultiValueMap<String, String>> entity = new HttpEntity<>(requestSeuridad, headers);
+		
+		String token = urlToken.isPresent() ? urlToken.get().getDesParametro() : "";
+		ResponseEntity<ResponseTokenBody> response = restTemplate.exchange(token, HttpMethod.POST,
+																		   entity, ResponseTokenBody.class);
+
+		return response.getBody();
+	}
+	
+	public RestTemplate getRestTemplate() throws KeyStoreException, NoSuchAlgorithmException, KeyManagementException {
+	    TrustStrategy acceptingTrustStrategy = new TrustStrategy() {
+	        @Override
+	        public boolean isTrusted(X509Certificate[] x509Certificates, String s) throws CertificateException {
+	            return true;
+	        }
+	    };
+	    SSLContext sslContext = org.apache.http.ssl.SSLContexts.custom().loadTrustMaterial(null, acceptingTrustStrategy).build();
+	    SSLConnectionSocketFactory csf = new SSLConnectionSocketFactory(sslContext, new NoopHostnameVerifier());
+	    CloseableHttpClient httpClient = HttpClients.custom().setSSLSocketFactory(csf).build();
+	    HttpComponentsClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory();
+	    requestFactory.setHttpClient(httpClient);
+	  
+	    return new RestTemplate(requestFactory);
+	}
+
+	@Override
+	public Object revokeToken(TokenDTO input) throws BusinessException, KeyManagementException, KeyStoreException, NoSuchAlgorithmException {
+		RestTemplate restTemplate = getRestTemplate();
+		LinkedMultiValueMap<String, String> requestSeuridad = new LinkedMultiValueMap<>();
+		
+		Optional<ParametroDTO> id = parameters.get(CLIENTID);
+		Optional<ParametroDTO> secret = parameters.get(CLIENTSECRET);
+		Optional<ParametroDTO> revoke = parameters.get(URLREVOKETOKEN);
+		
+		String clientId = "";
+		String clientSecret = "";
+		String revokeToken = "";
+		
+		if(id.isPresent() && secret.isPresent() && revoke.isPresent()) {
+			clientId = id.get().getDesParametro();
+			clientSecret = secret.get().getDesParametro();
+			revokeToken = revoke.get().getDesParametro();
+		}
+		
+		requestSeuridad.add(CLIENTID, clientId);
+		requestSeuridad.add(CLIENTSECRET, clientSecret);
+		requestSeuridad.add("token",input.getRefresh_token());
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(CONTENTTYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+		
+		HttpEntity<MultiValueMap<String, String>> entity = new HttpEntity<>(requestSeuridad, headers);		
+		ResponseEntity<ResponseTokenBody>  response = restTemplate.exchange(revokeToken, HttpMethod.POST, entity, ResponseTokenBody.class);
+
+		return response.getBody();
+	}
+
+	@Override
+	public Object refreshToken(TokenDTO input)
+			throws BusinessException, KeyManagementException, KeyStoreException, NoSuchAlgorithmException {
+		RestTemplate restTemplate = getRestTemplate();
+		
+		Optional<ParametroDTO> id = parameters.get(CLIENTID);
+		Optional<ParametroDTO> secret = parameters.get(CLIENTSECRET);
+		Optional<ParametroDTO> token = parameters.get(URLTOKEN);
+		
+		String clientId = "";
+		String clientSecret = "";
+		String urlToken = "";
+		
+		if(id.isPresent() && secret.isPresent() && token.isPresent()) {
+			clientId = id.get().getDesParametro();
+			clientSecret = secret.get().getDesParametro();
+			urlToken = token.get().getDesParametro();
+		}
+		
+		LinkedMultiValueMap<String, String> requestSeuridad = new LinkedMultiValueMap<>();
+		
+		requestSeuridad.add(GRANTTYPE, "refresh_token");
+		requestSeuridad.add(CLIENTID, clientId);
+		requestSeuridad.add(CLIENTSECRET, clientSecret);
+		requestSeuridad.add("refresh_token", input.getRefresh_token());
+
+		HttpHeaders headers = new HttpHeaders();
+		headers.add(CONTENTTYPE, MediaType.APPLICATION_FORM_URLENCODED_VALUE);
+		
+		HttpEntity<MultiValueMap<String, String>> entity = new HttpEntity<>(requestSeuridad, headers);
+		ResponseEntity<ResponseTokenBody> response=null;
+		try {
+			response = restTemplate.exchange(urlToken, HttpMethod.POST, entity, ResponseTokenBody.class);
+		} catch (HttpClientErrorException httpce) {
+			throw new HttpClientErrorException(HttpStatus.FORBIDDEN , Objects.requireNonNull(httpce.getMessage())); 
+		}
+
+		return response.getBody();
+	}
+
+}

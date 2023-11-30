@@ -1,0 +1,26 @@
+package mx.gob.imss.cit.pmc.seguridad.integration.model;
+
+import lombok.Getter;
+import lombok.Setter;
+
+public class ResponseType {
+	
+	@Getter
+	@Setter
+	private String accessToken;
+	
+
+	@Getter
+	@Setter
+	private String tokenType;
+
+	
+	@Getter
+	@Setter
+	private String expiresIn;
+
+	
+	@Getter
+	@Setter
+	private String scope;
+}
