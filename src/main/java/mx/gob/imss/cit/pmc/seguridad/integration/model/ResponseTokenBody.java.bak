@@ -1,0 +1,32 @@
+package mx.gob.imss.cit.pmc.seguridad.integration.model;
+
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+
+import lombok.Getter;
+import lombok.Setter;
+
+@JsonAutoDetect(fieldVisibility = Visibility.ANY)
+public class ResponseTokenBody {
+	
+	@Getter
+	@Setter
+	String accessToken;
+	
+	@Getter
+	@Setter
+	String tokenType;
+	
+	@Getter
+	@Setter
+	String expiresIn;
+	
+	@Getter
+	@Setter
+	String refreshToken;
+	
+	@Getter
+	@Setter
+	String scope;
+
+}

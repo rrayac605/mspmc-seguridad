@@ -1,0 +1,19 @@
+server:
+  port: 8049
+  
+spring:
+  data:
+    mongodb:
+      authentication-database: pmc_qa
+      username: pmcbatch
+      password: pmcbatch0
+      database: pmc_qa
+      port: 27017
+      host: 172.16.168.94
+logging:
+  file: ${fileLogSeguridad}
+  level:
+    root: INFO
+    org.springframework.web: INFO
+    com.demo: INFO
+    org.hibernate: INFO
